@@ -1,3 +1,4 @@
+import { privateFixture } from './fixture-helpers.mjs';
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -148,18 +149,18 @@ const strict = "const c={name:'ultraplan',isEnabled:function(){'use strict'\nret
 const strictPatched = applyAstEdits(strict, scanAstPatches(strict).ultraplan.matches);
 assert.equal(runInNewContext(`${strictPatched};const f=c.isEnabled;f()`, { __clawgodPatches: { ultraplan: false } }), true);
 
-const root = mkdtempSync(join(tmpdir(), 'clawgod-ast-test-'));
+const root = privateFixture('clawgod-ast-test-');
 try {
   for (const graph of [false, true]) {
     const dir = join(root, graph ? 'graph' : 'legacy');
     mkdirSync(dir);
-    for (const name of ['patch.mjs', 'ast-patches.mjs', 'acorn.mjs']) {
+    for (const name of ['patch.mjs', 'ast-patches.mjs', 'acorn.mjs', 'target-policy.cjs']) {
       copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
     }
     const entry = join(dir, 'cli.original.cjs');
     if (graph) { mkdirSync(join(dir, 'bunfs')); writeFileSync(entry, '// entry'); }
     const target = graph ? join(dir, 'bunfs/commands.js') : entry;
-    const run = (...args) => spawnSync(process.execPath, [join(dir, 'patch.mjs'), ...args], { encoding: 'utf8' });
+    const run = (...args) => spawnSync(process.execPath, [join(dir, 'patch.mjs'), '--target', entry, '--output-dir', dir, ...args], { encoding: 'utf8' });
     writeFileSync(target, source + dateSource);
     assert.equal(run('--dry-run').status, 0);
     assert.equal(readFileSync(target, 'utf8'), source + dateSource, 'dry-run must not write');

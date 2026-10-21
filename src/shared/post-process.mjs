@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync, realpathSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync } from 'fs';
+import { join } from 'path';
+import policy from './target-policy.cjs';
 
-// Generate paths in the OS's canonical form, including Windows 8.3 aliases.
-const here = realpathSync.native(dirname(fileURLToPath(import.meta.url)));
+const { output: here } = policy.sourceOptions(process.argv.slice(2), [], 'cli.original.js');
+
 const src = `${here}/cli.original.js`;
 const dst = `${here}/cli.original.cjs`;
 const pathMapFile = `${here}/pathmap.json`;
@@ -52,7 +52,7 @@ if (isChunked) {
   // build the replace table: /$bunfs/root/X → <here>/<relative-on-disk>
   const replaceTable = new Map();
   for (const [bunPath, rel] of Object.entries(pathMap)) {
-    replaceTable.set(bunPath, join(here, rel));
+    replaceTable.set(bunPath, policy.assertWithin(here, join(here, rel), 'mapped asset'));
   }
 
   function rewriteGraph(text) {

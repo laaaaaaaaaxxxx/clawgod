@@ -3,17 +3,21 @@
  * ClawGod Universal Patcher — AST semantic patches + legacy regex patches
  */
 import { readFileSync, writeFileSync, existsSync, copyFileSync, readdirSync, renameSync } from 'fs';
-import { join, dirname, relative } from 'path';
-import { fileURLToPath } from 'url';
+import { join, relative } from 'path';
+import policy from './target-policy.cjs';
 import { AST_PATCH_IDS, scanAstPatches, applyAstEdits, parsePatchSource } from './ast-patches.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const TARGET = join(__dirname, 'cli.original.cjs');
-const BACKUP = TARGET + '.bak';
-const CLEAN_SOURCE = join(__dirname, 'source-backup.json');
+const args = process.argv.slice(2);
+const dumpFeatures = args.length === 1 && args[0] === '--dump-features';
+const declared = dumpFeatures ? null : policy.sourceOptions(args,
+  ['--dry-run', '--verify', '--revert', '--capture-clean-source', '--tolerate-stale']);
+const __dirname = declared?.output;
+const TARGET = declared?.target;
+const BACKUP = TARGET && TARGET + '.bak';
+const CLEAN_SOURCE = __dirname && join(__dirname, 'source-backup.json');
 
 // ─── Feature registry (toggle units) ─────────────────────
-// A feature is the user-facing unit toggled via ~/.clawgod/patches.json
+// A feature is the user-facing unit toggled in the explicitly selected copy config
 // ({"<featureId>": false}) or per-launch CLAWGOD_FEATURE_<NAME> env overrides
 // ("feature=false,other=true"). One feature is usually realized by
 // SEVERAL cooperating patches (Computer Use = subscription + default +
@@ -335,67 +339,15 @@ const patches = [
     sentinel: '!=="firstParty"&&',
   },
   {
-    // CLI subcommand registered via commander chain:
-    //   .command("update").alias("upgrade").description("…").action(async()=>{…})
-    // The original action's update path is broken under clawgod: detectInstallType()
-    // returns "unknown" because the launcher hides our cli.cjs from upstream's
-    // path heuristics, and the unknown-fallback branch on macOS overwrites
-    // ~/.bun/bin/bun by extracting the bun runtime out of the new native binary
-    // (preserving Apr-19-build mtime). That **silently downgrades** clawgod's
-    // required Bun and crashes cli.original.cjs the next launch with
-    // "Expected CommonJS module to have a function wrapper". On Windows the
-    // same fallback writes the new binary somewhere our drift detection
-    // doesn't scan, so the user sees "Successfully updated" but never gets
-    // the new version.
-    //
-    // Redirect to clawgod's own self-update so the upgrade goes through
-    // install.sh (re-extract + re-patch + re-launcher). Always pull the
-    // latest install.sh from the release so users get patcher fixes too.
-    // Escape hatch printed on every run: `install.sh --uninstall` restores
-    // claude.orig and lets vanilla `claude update` work again.
-    //
-    // v2.1.232+ wraps the action handler in a framework helper. The helper
-    // is a minified identifier whose name drifts across builds:
-    //   .action(async()=>{…})              ≤v2.1.231
-    //   .action(t(async(a)=>{…}))          v2.1.232 … v2.1.237
-    //   .action(n(async(u)=>{…}))          v2.1.238+
-    // Match any one-letter minified helper via `identifier(` rather than
-    // hardcoding a name, so a future rename keeps matching.
+    // Do not restore the native updater when disabling ClawGod updates.
+    // A stale update matcher is fatal, even with --tolerate-stale.
     id: 'update-redirect',
-    name: "Redirect `claude update` to clawgod self-update",
-    pattern: /(\.command\("update"\)\.alias\("upgrade"\)\.description\("[^"]+"\))(\.action\((?:[A-Za-z_$][\w$]*\()?async\([^)]*\)=>\{)/g,
-    replacer: (m, chain, action) => {
-      // PowerShell 5.1's Invoke-WebRequest ignores HTTP_PROXY/HTTPS_PROXY env
-      // (only reads IE system proxy). Read env explicitly and pass via -Proxy
-      // so it works on both PS 5.1 and PS 7. Use Invoke-RestMethod (irm) not
-      // Invoke-WebRequest (iwr): under -UseBasicParsing on PS 5.1, iwr's
-      // .Content is byte[] not string, so `iex (iwr -useb ...).Content`
-      // throws "Cannot convert System.Byte[] to System.String". irm always
-      // returns string in both versions. -EncodedCommand bypasses CLI
-      // arg-quoting; payload must be UTF-16LE base64.
-      const psScript =
-        "$p=if($env:HTTPS_PROXY){$env:HTTPS_PROXY}elseif($env:HTTP_PROXY){$env:HTTP_PROXY}else{$null};" +
-        "$u='https://github.com/0Chencc/clawgod/releases/latest/download/install.ps1';" +
-        "if($p){iex(irm -Proxy $p $u)}else{iex(irm $u)}";
-      const psB64 = Buffer.from(psScript, 'utf16le').toString('base64');
-      return (
-        chain + '.allowUnknownOption()' + action +
-        `const _ui=process.argv.findIndex(a=>a==="update"||a==="upgrade");` +
-        `const _ua=_ui>=0?process.argv.slice(_ui+1):[];` +
-        `const _vi=_ua.indexOf("--version");` +
-        `if(_vi>=0&&_ua[_vi+1])process.env.CLAWGOD_VERSION=_ua[_vi+1];` +
-        `if(_ua.includes("--no-upgrade"))process.env.CLAWGOD_NO_UPGRADE="1";` +
-        `if(_ua.includes("--tolerate-stale"))process.env.CLAWGOD_TOLERATE_STALE="1";` +
-        `if(_ua.includes("--lean-off"))process.env.CLAWGOD_LEAN_OFF="1";` +
-        `if(_ua.includes("--lean-on"))process.env.CLAWGOD_LEAN_ON="1";` +
-        `if(_ua.includes("--lean-max"))process.env.CLAWGOD_LEAN_MAX="1";` +
-        `process.stderr.write("[clawgod] 'claude update' is handled by clawgod self-update.\\n[clawgod] To leave clawgod and use vanilla update: bash ~/.clawgod/install.sh --uninstall\\n[clawgod] Continuing now\\u2026\\n");` +
-        `const _w=process.platform==='win32';` +
-        `const _c=_w?['powershell','-NoProfile','-EncodedCommand','${psB64}']:['bash','-c','curl -fsSL https://github.com/0Chencc/clawgod/releases/latest/download/install.sh | bash'];` +
-        `const _r=require('child_process').spawnSync(_c[0],_c.slice(1),{stdio:'inherit',env:process.env});` +
-        `process.exit(_r.status||0);`
-      );
-    },
+    name: 'Refuse update/upgrade (no native or ClawGod fallback)',
+    nonTolerable: true,
+    appliedMarker: '[clawgod fork] Updates are disabled',
+    pattern: /(\.command\("update"\)\.alias\("upgrade"\)\.description\("[^"]+"\))(\.action\((?:[A-Za-z_$][\w$]*\()?async\([^)]*\)=>\{)(?!process\.stderr\.write\("\[clawgod fork\] Updates are disabled)/g,
+    replacer: (m, chain, action) => chain + action +
+      `process.stderr.write("[clawgod fork] Updates are disabled; use a separately authorized manual copy build.\\n");process.exitCode=1;return;`,
     sentinel: '.command("update").alias("upgrade")',
   },
   // ── 绿色主题 (patch 标识) ──
@@ -698,30 +650,11 @@ const patches = [
     optional: true,  // legacy versions had a ternary instead
   },
   {
-    // Shell-integration generator (iT6 in v2.1.140, was Wa1 in older versions)
-    // emits a zsh/bash function that calls the native claude binary with
-    // ARGV0=ugrep|rg|... for multitool dispatch. After clawgod installs, the
-    // baked path points at our shell-script launcher — but shell scripts
-    // CANNOT preserve argv[0] (kernel shebang re-exec overwrites it, and zsh
-    // additionally refuses to export ARGV0 as env). The shell function then
-    // fails because bun receives e.g. -G and errors with "Invalid Argument".
-    //
-    // Fix: redirect the baked path to claude.orig (the native binary backup
-    // clawgod creates at install time). Then the multitool dispatch reaches
-    // a real binary that honors argv[0]. See issue #82.
-    //
-    // Generator shape across versions:
-    //   v2.1.88 (Wa1):  let Y=E4([_]),...  ← _ is the claude binary path, no in-function compute
-    //   v2.1.140 (iT6): let ...,z=FJ$.join(Le(),A?"claude.exe":"claude"),Y=A?rL(z):z,...
-    //                   ← path computed inside via join(versionsDir, "claude[.exe]")
-    // Anchor on the join(...) ternary form unique to the generator — the
-    // bare "claude.exe":"claude" string also appears in u18() (basename
-    // helper) but never inside a path.join(), so this regex hits exactly the
-    // shell-integration generator and nothing else.
+    // Replace the computed install-directory path with the validated explicit native copy.
     id: 'shell-integration-orig',
-    name: 'Shell integration → claude.orig (multitool dispatch fix)',
+    name: 'Shell integration → explicitly declared native copy',
     pattern: /([\w$]+\.join\([\w$]+\(\),[\w$]+\?)"claude\.exe":"claude"(\))/g,
-    replacer: (m, prefix, suffix) => `${prefix}"claude.orig.exe":"claude.orig"${suffix}`,
+    replacer: () => '(globalThis.__clawgodNativePath??(()=>{throw new Error("Explicit native copy is required")})())',
     sentinel: '?"claude.exe":"claude")',
     optional: true,  // v2.1.88-era bundles compute the path differently
   },
@@ -745,11 +678,9 @@ const patches = [
 // ─── Main ─────────────────────────────────────────────────
 
 // cli.original path (legacy single-bundle) or graph dir (v2.1.245+)
-const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const verify = args.includes('--verify');
 const revert = args.includes('--revert');
-const dumpFeatures = args.includes('--dump-features');
 const captureCleanSource = args.includes('--capture-clean-source');
 // Opt-in: report a stale patch and keep going instead of aborting the whole
 // install. A single drifted regex still fails the run by default, because
@@ -821,14 +752,8 @@ const GRAPH_DIR = join(__dirname, 'bunfs');
 const isGraph = existsSync(GRAPH_DIR);
 
 if (revert && !existsSync(CLEAN_SOURCE)) {
-  if (isGraph) {
-    console.error('No complete clean-source backup. Reinstall the same Claude version to recover it.');
-    process.exit(1);
-  }
-  if (!existsSync(BACKUP)) { console.error('❌ No backup found'); process.exit(1); }
-  copyFileSync(BACKUP, TARGET);
-  console.log('✅ Reverted from backup');
-  process.exit(0);
+  console.error('An explicit output-local clean-source snapshot is required; no backup discovery or recovery is supported.');
+  process.exit(1);
 }
 
 // ── Load target(s) ─────────────────────────────
@@ -861,7 +786,8 @@ if (captureCleanSource) {
     Object.entries(files).map(([name, content]) => [relative(__dirname, name).replaceAll('\\', '/'), content]),
   ) };
   const temporary = `${CLEAN_SOURCE}.${process.pid}.tmp`;
-  writeFileSync(temporary, JSON.stringify(snapshot));
+  policy.assertWithin(__dirname, temporary, 'snapshot temporary file');
+  writeFileSync(temporary, JSON.stringify(snapshot), { flag: 'wx' });
   renameSync(temporary, CLEAN_SOURCE);
   copyFileSync(TARGET, BACKUP); // Refresh legacy backup after a version change too.
   console.log(`Saved clean source: ${Object.keys(files).length} files (v${version})`);
@@ -882,7 +808,7 @@ if (existsSync(CLEAN_SOURCE) && !verify) {
     files = Object.fromEntries(names.map(name => [join(__dirname, name), snapshot.files[name]]));
     console.log(`Using clean source backup: ${names.length} files (v${version})`);
   } catch (error) {
-    console.error(`Invalid clean-source backup: ${error.message}. Reinstall Claude ${version} without --no-upgrade.`);
+    console.error(`Invalid clean-source backup: ${error.message}. Provide a valid explicitly selected clean-source snapshot; automatic recovery is disabled.`);
     process.exit(1);
   }
 }
@@ -971,6 +897,11 @@ for (const p of [...patches.filter(p => p.ast), ...patches.filter(p => !p.ast)])
   for (const fm of fileMatches) totalMatches += fm.matches.length;
 
   if (relevantFiles.length === 0) {
+    if (p.appliedMarker && Object.values(files).some(content => content.includes(p.appliedMarker))) {
+      console.log(`  ✅ ${p.name} (already applied)`);
+      applied++;
+      continue;
+    }
     if (p.ast && astPatched.has(p.id) && !astPresent.has(p.id)) {
       console.log(`  ✅ ${p.name} (already applied, AST gate present)`);
       applied++;
@@ -986,7 +917,7 @@ for (const p of [...patches.filter(p => p.ast), ...patches.filter(p => !p.ast)])
       const stillPresent = p.ast ? sentinels : sentinels.filter((s) => Object.values(files).some((c) => c.includes(s)));
       if (stillPresent.length > 0) {
         const detail = stillPresent.map((s) => JSON.stringify(s)).join(', ');
-        if (tolerateStale) {
+        if (tolerateStale && !p.nonTolerable) {
           console.log(`  ⚠️  ${p.name} — ${p.ast ? 'AST matcher' : 'regex'} stale, sentinel still in source: ${detail} (tolerated)`);
           tolerated++;
           toleratedNames.push(p.name);

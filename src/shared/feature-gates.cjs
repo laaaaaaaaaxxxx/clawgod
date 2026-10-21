@@ -1,6 +1,6 @@
 'use strict';
 // Patch feature gates — computes globalThis.__clawgodPatches before the
-// patched cli loads. Config: user-edited ~/.clawgod/patches.json
+// patched cli loads. Config: the explicitly declared copy configuration patches.json
 // ({"<feature>": false}, absent key = on). Per-feature env overrides for a
 // single launch: CLAWGOD_FEATURE_<NAME>=false (feature id upper-cased,
 // dashes → underscores, e.g. CLAWGOD_FEATURE_GEO_NEUTRALIZE=false; "true"
@@ -19,10 +19,10 @@
 // cli.original.cjs. Their gate lands in the same __clawgodPatches table.
 var CLAWGOD_RUNTIME_FEATURES = ['bun-ant-shim'];
 
-var clawgodDir = require('path').join(require('os').homedir(), '.clawgod');
+var clawgodDir = require('./target-policy.cjs').assertPrivatePath(process.env.CLAWGOD_CONFIG_DIR, 'feature configuration directory', { kind: 'directory', mustExist: true });
+var featureConfig = require('./target-policy.cjs').assertPrivatePath(require('path').join(clawgodDir, 'patches.json'), 'feature configuration', { kind: 'file' });
 
-var _cfg = {};
-try { _cfg = JSON.parse(require('fs').readFileSync(require('path').join(clawgodDir, 'patches.json'), 'utf8')); } catch {}
+var _cfg = require('fs').existsSync(featureConfig) ? JSON.parse(require('fs').readFileSync(featureConfig, 'utf8')) : {};
 for (var _name in process.env) {
   if (_name.indexOf('CLAWGOD_FEATURE_') !== 0) continue;
   var _val = process.env[_name];

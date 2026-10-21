@@ -13,30 +13,9 @@ const ROOT = __dirname;
 const SOURCE_ROOT = join(ROOT, 'src');
 const PLACEHOLDER_RE = /{{CLAWGOD:[^}]+}}/g;
 
-const identity = (content) => content;
-
-// Windows PowerShell 5.1 treats UTF-8 without a BOM as the active ANSI code
-// page, while `irm ... | iex` exposes a UTF-8 BOM as a literal U+FEFF token.
-// Keep the generated installer ASCII-only and encode Unicode in embedded
-// JavaScript/JSON as UTF-16 escape sequences, which both grammars understand.
 const escapeNonAscii = (content) => content.replace(
   /[^\x00-\x7F]/g,
   (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
-);
-
-// PowerShell's single-quoted here-string cannot safely embed the annotated
-// proxy source used by install.sh. The existing Windows artifact intentionally
-// omits its header comments and blank separator lines; derive that compact form
-// from the shared implementation instead of maintaining a second proxy.
-const compactProxyForPowerShell = (content) => content
-  .split('\n')
-  .filter((line) => line !== '')
-  .filter((line) => !line.startsWith('// Anthropic Messages API'))
-  .filter((line) => !line.startsWith('// Allows Claude Code'))
-  .join('\n');
-
-const compactAndEscapeProxyForPowerShell = (content) => escapeNonAscii(
-  compactProxyForPowerShell(content),
 );
 
 // Feature registry compiled into the wrappers. `patch.mjs --dump-features`
@@ -65,53 +44,35 @@ function weaveFeaturesMeta(content) {
   return content.replace(FEATURES_META_MARKER, () => rendered);
 }
 
-const TARGETS = [
-  {
-    name: 'install.sh',
-    template: 'templates/install.sh',
-    mode: 0o755,
-    sources: {
-      'extract-natives.mjs': ['shared/extract-natives.mjs', identity],
-      'post-process.mjs': ['shared/post-process.mjs', identity],
-      'repatch.mjs': ['shared/repatch.mjs', identity],
-      'openai-proxy.cjs': ['shared/openai-proxy.cjs', identity],
-      'cli.cjs': ['shared/cli.cjs', identity],
-      'startup-check.cjs': ['shared/startup-check.cjs', identity],
-      'runtime-helpers.cjs': ['shared/runtime-helpers.cjs', identity],
-      'bun-ant-shim.cjs': ['shared/bun-ant-shim.cjs', identity],
-      'feature-gates.cjs': ['shared/feature-gates.cjs', weaveFeaturesMeta],
-      'patch.mjs': ['shared/patch.mjs', identity],
-      'ast-patches.mjs': ['shared/ast-patches.mjs', identity],
-      'acorn.mjs': ['shared/acorn.mjs', identity],
-      'acorn.LICENSE': ['shared/acorn.LICENSE', identity],
-      'features.json': ['shared/features.json', identity],
-    },
-  },
-  {
-    name: 'install.ps1',
-    template: 'templates/install.ps1',
-    asciiOnly: true,
-    sources: {
-      'npm-fetch.mjs': ['windows/npm-fetch.mjs', escapeNonAscii],
-      'extract-natives.mjs': ['shared/extract-natives.mjs', escapeNonAscii],
-      'post-process.mjs': ['shared/post-process.mjs', escapeNonAscii],
-      'repatch.mjs': ['shared/repatch.mjs', escapeNonAscii],
-      'openai-proxy.cjs': ['shared/openai-proxy.cjs', compactAndEscapeProxyForPowerShell],
-      'cli.cjs': ['shared/cli.cjs', escapeNonAscii],
-      'startup-check.cjs': ['shared/startup-check.cjs', escapeNonAscii],
-      'runtime-helpers.cjs': ['shared/runtime-helpers.cjs', escapeNonAscii],
-      'bun-ant-shim.cjs': ['shared/bun-ant-shim.cjs', escapeNonAscii],
-      'feature-gates.cjs': ['shared/feature-gates.cjs', (content) => escapeNonAscii(weaveFeaturesMeta(content))],
-      'patch.mjs': ['shared/patch.mjs', escapeNonAscii],
-      'ast-patches.mjs': ['shared/ast-patches.mjs', escapeNonAscii],
-      'acorn.mjs': ['shared/acorn.mjs', escapeNonAscii],
-      'acorn.LICENSE': ['shared/acorn.LICENSE', escapeNonAscii],
-      'features.json': ['shared/features.json', escapeNonAscii],
-      'lean-remove.cjs': ['windows/lean-remove.cjs', escapeNonAscii],
-      'lean-apply.cjs': ['windows/lean-apply.cjs', escapeNonAscii],
-    },
-  },
+const PAYLOADS = [
+  'manual-install.cjs', 'target-policy.cjs', 'extract-natives.mjs',
+  'post-process.mjs', 'patch.mjs', 'ast-patches.mjs', 'acorn.mjs',
+  'acorn.LICENSE', 'cli.cjs', 'feature-gates.cjs', 'runtime-helpers.cjs',
+  'bun-ant-shim.cjs', 'features.json',
 ];
+const TARGETS = [
+  { name: 'install.sh', template: 'templates/install.sh', mode: 0o755 },
+  { name: 'install.ps1', template: 'templates/install.ps1', asciiOnly: true },
+];
+
+function installerBundle() {
+  const payloads = Object.fromEntries(PAYLOADS.map(name => {
+    const source = readSource(`shared/${name}`);
+    return [name, name === 'feature-gates.cjs' ? weaveFeaturesMeta(source) : source];
+  }));
+  return `'use strict';\nconst payloads = ${JSON.stringify(payloads)};\n` +
+    `const cache = new Map();\n` +
+    `function load(name) {\n` +
+    `  if (!name.startsWith('./')) return require(name);\n` +
+    `  const key = name.slice(2);\n` +
+    `  if (cache.has(key)) return cache.get(key).exports;\n` +
+    `  if (!Object.hasOwn(payloads, key)) throw new Error('Unknown embedded module: ' + key);\n` +
+    `  const module = { exports: {} }; cache.set(key, module);\n` +
+    `  new Function('require', 'module', 'exports', payloads[key])(load, module, module.exports);\n` +
+    `  return module.exports;\n}\n` +
+    `try { load('./manual-install.cjs').main(process.argv.slice(2), payloads); }\n` +
+    `catch (error) { process.stderr.write('[clawgod fork] ' + error.message + '\\n'); process.exitCode = 1; }`;
+}
 
 function readSource(relativePath) {
   const path = join(SOURCE_ROOT, relativePath);
@@ -128,15 +89,10 @@ function render(target) {
   if (!existsSync(templatePath)) throw new Error(`Missing template: ${target.template}`);
   let output = readFileSync(templatePath, 'utf8').replace(/^\uFEFF/, '');
 
-  for (const [name, [sourcePath, transform]] of Object.entries(target.sources)) {
-    const placeholder = `{{CLAWGOD:${name}}}`;
-    const matches = output.split(placeholder).length - 1;
-    if (matches !== 1) {
-      throw new Error(`${target.template}: expected one ${placeholder}, found ${matches}`);
-    }
-    const source = transform(readSource(sourcePath));
-    output = output.replace(placeholder, () => source);
-  }
+  const placeholder = '{{CLAWGOD:INSTALLER}}';
+  if (output.split(placeholder).length !== 2) throw new Error('Installer placeholder must occur once');
+  const source = installerBundle();
+  output = output.replace(placeholder, () => target.asciiOnly ? escapeNonAscii(source) : source);
 
   const unresolved = output.match(PLACEHOLDER_RE);
   if (unresolved) {

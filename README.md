@@ -1,260 +1,31 @@
-# ClawGod
+# ClawGod — controlled manual-copy fork
 
-[English](README.md) | [中文](README_ZH.md) | [日本語](README_JP.md)
+Fork: [laaaaaaaaaxxxx/clawgod](https://github.com/laaaaaaaaaxxxx/clawgod).
+Based on upstream commit `4038ca932c3539911dfc8b97fcce3ab788185f96`.
 
-[![Latest](https://img.shields.io/github/v/release/0chencc/clawgod?style=flat&label=Latest)](https://github.com/0Chencc/clawgod/releases/latest)
-[![Released](https://img.shields.io/github/release-date/0chencc/clawgod?style=flat&label=Released)](https://github.com/0Chencc/clawgod/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/0chencc/clawgod/total?style=flat&label=Downloads)](https://github.com/0Chencc/clawgod/releases)
-[![Compat](https://img.shields.io/github/actions/workflow/status/0chencc/clawgod/compat-daily.yml?branch=main&style=flat&label=Compat)](https://github.com/0Chencc/clawgod/actions/workflows/compat-daily.yml)
-[![Claude tested](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/0Chencc/clawgod/badges/claude-version.json&style=flat)](https://github.com/0Chencc/clawgod/actions/workflows/compat-daily.yml)
+**Never install on, launch, patch, test against, or overwrite the official Claude CLI.**
+Only explicitly declared independent bridge test/copy targets are eligible.
+No automatic discovery, background update check, download, repatch, configuration
+migration, PATH/global-launcher change or scheduled workflow is supported.
 
-> God mode for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+See [FORK.md](FORK.md) for the enforced boundary and verification limits, and
+[src/README.md](src/README.md) for the source/build contracts. Documentation
+under `docs/` and `web/` was inherited from upstream; its historical installation
+instructions are not supported by this fork. Their automatic hook installers
+have been removed.
 
-**This is NOT a third-party Claude Code client.** ClawGod is a runtime patch applied on top of the official Claude Code. It works with any version — as Claude Code updates, ClawGod automatically re-extracts and re-patches against the new version on the next launch.
+Builds and synthetic fixtures do not authorize a real copy installation or a
+runtime launch. Real target operations require a separate one-time human
+authorization, explicit absolute paths and an independent output directory.
 
-## Prerequisites
+## Source checks
 
-Install these **before** running the ClawGod installer:
-
-| Tool | Why | Install |
-|------|-----|---------|
-| **Claude Code** (native binary) | ClawGod patches the official Bun standalone binary you already have | [`claude.ai/install.sh`](https://claude.ai/install.sh) (macOS/Linux) or [`claude.ai/install.ps1`](https://claude.ai/install.ps1) (Windows) |
-| **ripgrep** | Required by Claude Code's Grep tool | `brew install ripgrep` / `apt install ripgrep` / `winget install BurntSushi.ripgrep.MSVC` |
-| **Node.js >= 18** | Used by the patcher | [nodejs.org](https://nodejs.org) |
-| **Bun** | Runtime for the patched cli.js; auto-installed if missing | [bun.sh](https://bun.sh), `npm install -g bun`, `scoop install bun`, or `choco install bun` |
-
-## Install
-
-**macOS / Linux:**
-```bash
-curl -fsSL https://github.com/0Chencc/clawgod/releases/latest/download/install.sh | bash
+```sh
+node build.js
+node build.js --check
+node --test src/shared/target-policy.test.mjs src/shared/manual-install.test.mjs src/shared/source-boundary.test.mjs
 ```
 
-**Windows (PowerShell):**
-```powershell
-irm https://github.com/0Chencc/clawgod/releases/latest/download/install.ps1 | iex
-```
-
-Green logo = patched. Orange logo = original.
-
-![ClawGod Patched](bypass.png)
-
-## What it does
-
-### Feature Unlocks
-
-| Patch | What you get |
-|-------|-------------|
-| **Internal User Mode** | 24+ hidden commands (`/share`, `/teleport`, `/issue`, `/bughunter`...), debug logging, API request dumps |
-| **GrowthBook Overrides** | Override any feature flag via config file |
-| **Agent Teams** | Multi-agent swarm collaboration, no flags needed |
-| **Computer Use** | Screen control without Max/Pro subscription (macOS) |
-| **Auto-mode** | Unlocks auto-mode for third-party API users (no firstParty gate) |
-| **Classifier tuning** | Tunable auto-mode classifier: timeout / model / retries (`CLAWGOD_CLASSIFIER_TIMEOUT_MS`, `CLAWGOD_CLASSIFIER_MODEL`, `CLAWGOD_CLASSIFIER_RETRIES`) |
-| **Ultraplan** | Multi-agent planning via Claude Code Remote |
-| **Ultrareview** | Automated bug hunting via Claude Code Remote |
-
-### Restriction Removals
-
-| Patch | What's removed |
-|-------|---------------|
-| **CYBER_RISK_INSTRUCTION** | Security testing refusal (pentesting, C2, exploits) |
-| **URL Restriction** | "NEVER generate or guess URLs" instruction |
-| **Cautious Actions** | Forced confirmation before destructive operations |
-| **Login Notice** | "Not logged in" startup reminder |
-| **Enterprise Remote Settings** | Org-managed remote settings (`~/.claude/remote-settings.json`) — forced permission rules, `disableRemoteControl`, `allowManagedPermissionRulesOnly`, version pinning. Disable with `CLAWGOD_FEATURE_REMOTE_SETTINGS=false` |
-
-### Geo-Steganography Neutralization
-
-| Patch | What's neutralized |
-|-------|-------------------|
-| **Date String (qla)** | System prompt encodes user location via Unicode apostrophe variants (U+0027 / U+2019 / U+02BC / U+02B9) and date separator (`-` vs `/` for CN timezone). Patched to always use ASCII `'` and unmodified date format |
-| **Geo-Detection Probe (rdp)** | Client-side three-axis detection: timezone (`Asia/Shanghai` / `Asia/Urumqi`), proxy hostname against XOR-obfuscated 100+ domain blocklist, CN-LLM vendor keywords in base URL. Patched to always return null |
-| **Apostrophe Selector (odp)** | Selects one of four Unicode apostrophes based on detection results. Patched to always return ASCII `'` (defense-in-depth) |
-
-### Visual
-
-| Patch | Effect |
-|-------|--------|
-| **Green Theme** | Brand color → green. Patched at a glance |
-| **Message Filters** | Shows content hidden from non-Anthropic users |
-
-### Reliability
-
-| Feature | What it does |
-|---------|-------------|
-| **Glob/Grep Restore** | Bun compile inlines `EMBEDDED_SEARCH_TOOLS=true`, hiding built-in Glob/Grep tools. Patch un-inlines the env check and adds bfs/ugrep binary availability detection — tools are restored when running under Bun runtime |
-| **Renderer Shim (2.1.271+)** | Claude Code 2.1.271 builds its TUI renderer on `Bun.ant.CellSegmenter`, a private API that only Anthropic's bundled Bun exposes. ClawGod loads a JS implementation before the patched bundle, so the TUI paints under stock Bun instead of stalling before the first frame |
-| **1h Prompt Cache** | Forces 1h TTL allowlist on (was effectively 5m → much higher cache_creation token usage) |
-| **Third-Party Cache Fix** | Auto-disables `x-anthropic-billing-header` when `baseURL` is non-Anthropic. The header's per-request `cch` field breaks prompt-cache hit rate on DeepSeek / OneAPI / Bedrock / vLLM and any other Anthropic-compatible proxy. You no longer need to set `CLAUDE_CODE_ATTRIBUTION_HEADER=0` yourself. |
-| **Auto Re-patch** | Detects when the user's native Claude binary has been upgraded; transparently re-extracts and re-patches on next launch |
-| **Update Notification** | Checks GitHub releases once per 24h (async, non-blocking). Shows a one-line notice if a newer ClawGod version is available |
-| **Lean Settings** | Three-level token optimization for `~/.claude/settings.json`. **on** (default): removes unused tool definitions + disables Workflows/Artifact; Remote Control remains available. **max**: additionally disables Remote Control and removes Plan mode, Agent Teams, bundled skills. **off**: all tools restored |
-
-> **Lean Settings** are non-destructive and persist across updates. Toggle anytime: `claude --lean-on` (default) / `claude --lean-max` (aggressive) / `claude --lean-off` (restore all). To opt out of a single setting, set it yourself (e.g. `"disableArtifact": false`).
-
-Remote Control (`/remote-control`, `/rc`) is allowed in **on/off** and disabled by default only in **max**. Updating in **on** mode or running `claude --lean-on` clears the older Lean Remote Control disable setting. Only **max** defaults `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`; explicit environment restrictions are preserved. Remote Control still requires upstream account, authentication, endpoint, and organization eligibility.
-
-## Commands
-
-```bash
-claude              # Patched Claude Code (replaces the official launcher)
-clawgod             # Same as `claude`, explicit & guaranteed entry point
-claude.orig         # Original unpatched version (auto-backed-up)
-```
-
-`clawgod` is unambiguous: on Windows where `claude.exe` may shadow `claude.cmd`, `clawgod.cmd` always works. Even after official self-update overwrites `claude`, `clawgod` keeps running the patched build.
-
-## Configuration
-
-`~/.clawgod/provider.json` is auto-created on first run. Setting `apiKey` lets you skip OAuth entirely and point ClawGod at any Anthropic-compatible endpoint.
-
-```json
-{
-  "apiKey": "sk-ant-...",
-  "baseURL": "https://api.anthropic.com",
-  "model": "",
-  "smallModel": "",
-  "effort": "",
-  "timeoutMs": 3000000
-}
-```
-
-- **`apiKey` set** → ClawGod injects it as `ANTHROPIC_API_KEY` and isolates from `~/.claude/settings.json`. The default protocol requires an Anthropic Messages-compatible endpoint. For Chat Completions gateways, use the configuration below. A non-Anthropic `baseURL` populates only `ANTHROPIC_AUTH_TOKEN` for gateway auth.
-- **`apiKey` empty** → OAuth path. Run `claude auth login` once; `~/.claude` keeps hosting your subagents, skills, and MCP settings.
-- **`effort`** → Sets reasoning effort; an existing `CLAUDE_CODE_EFFORT_LEVEL` takes precedence. With `protocol: "openai-chat"`, `type: "grok"` or `"openai-compat"`, the proxy sends `reasoning_effort` even when Claude omits effort for a custom model alias. `low`, `medium`, `high`, and `xhigh` pass through; `max` maps to `xhigh`; `auto` omits the parameter to use the upstream default. Choose a level supported by your upstream model. Empty/unset configuration leaves request-level effort in control and adds no effort parameter when the request has none.
-
-### OpenAI Chat Completions endpoints
-
-For an endpoint that exposes `/v1/chat/completions`, configure:
-
-```json
-{
-  "protocol": "openai-chat",
-  "apiKey": "sk-...",
-  "baseURL": "https://example.com/v1",
-  "model": "your-upstream-model",
-  "smallModel": "your-upstream-model"
-}
-```
-
-`baseURL` is the API base (including `/v1` when required), **not** the full `/chat/completions` URL. Set the model names to IDs accepted by your provider. ClawGod starts a loopback proxy inside the launcher process; no external gateway or separate service is required. `timeoutMs` also covers the upstream request and stream; an existing `API_TIMEOUT_MS` takes precedence.
-
-- Omitting `protocol` keeps the existing behavior. `type: "openai-compat"` and `type: "grok"` remain supported; an explicit `protocol` takes precedence. `protocol: "anthropic"` uses Messages directly. Grok defaults to `https://api.x.ai/v1` and retains its settings/environment API key fallback. Other Chat providers require an explicit API base and key.
-- Supports text, system prompts, tool calls/results, forced tool selection and parallel-tool controls, streaming, usage, and base64/URL images. Parallel tool arguments are assembled and validated before their content blocks are emitted; text still streams immediately. Missing upstream usage remains zero rather than a fabricated exact count.
-- Base64 PDFs are sent as Chat Completions `file` parts and require file support in the upstream model/API. Text documents are sent as text. PDF URLs, document citations, non-text tool results, server tools, and structured output formats are rejected with a clear error. Historical Anthropic thinking/signature blocks are omitted. Model-specific reasoning features are not losslessly translated.
-- `/v1/messages/count_tokens` estimates locally without a billed generation request. The `x-clawgod-token-count: estimate` response header marks the result. It uses UTF-8 text bytes / 3 plus message overhead, 1600 tokens per image, and decoded PDF bytes / 3. This is a rough budget, not the model's tokenizer; PDF byte size does not reflect page count and the estimate cannot guarantee context-window fit.
-- Chat `stop` maps to `end_turn` (or `tool_use` when the response contains tool calls): the protocol does not distinguish natural completion from a matched stop sequence. `length`, `tool_calls`, and `content_filter` map to `max_tokens`, `tool_use`, and `refusal`. Upstream HTTP errors retain their status and `Retry-After`; malformed or truncated streams produce an error.
-- `/v1/responses` and automatic protocol detection are not supported. Use `openai-chat` only for Chat Completions endpoints.
-
-### Feature Toggles
-
-`~/.clawgod/patches.json` (auto-created empty) switches features off persistently — your choices survive updates and reinstalls. Absent key = on.
-
-```json
-{ "theme": false, "geo-neutralize": false }
-```
-
-| Feature id | Controls |
-|------------|----------|
-| `agent-teams` | Agent Teams always enabled |
-| `computer-use` | Computer Use unlock |
-| `ultraplan` | Ultraplan slash command |
-| `ultrareview` | Ultrareview slash command |
-| `voice-mode` | Voice Mode |
-| `auto-mode` | Auto-mode model selection on third-party APIs |
-| `classifier-tuning` | Auto-mode classifier overrides: `CLAWGOD_CLASSIFIER_TIMEOUT_MS` (min deadline; unset = 60-120s by context, v2.1.251+), `CLAWGOD_CLASSIFIER_MODEL`, `CLAWGOD_CLASSIFIER_RETRIES` (unset = 4) |
-| `theme` | Green brand/logo color scheme |
-| `geo-neutralize` | Geo/proxy steganography neutralization in system prompt |
-| `cyber-risk` | Removes CYBER_RISK_INSTRUCTION from system prompt |
-| `url-restriction` | Removes URL generation restriction from system prompt |
-| `cautious-actions` | Removes "Executing actions with care" section from system prompt |
-| `not-logged-in` | Removes "Not logged in" notice |
-| `message-filter` | Bypasses non-ant message/attachment filters |
-| `bun-ant-shim` | `Bun.ant.CellSegmenter` renderer shim for Claude Code 2.1.271+ (see Reliability) |
-
-For a single launch, set an env var instead — feature id upper-cased, dashes to underscores:
-
-```bash
-CLAWGOD_FEATURE_THEME=false claude     # green theme off, this run only
-CLAWGOD_FEATURE_GEO_NEUTRALIZE=true claude  # temporarily re-enable one disabled in patches.json
-```
-
-## How it works
-
-Since `@anthropic-ai/claude-code` v2.1.113, the npm package no longer ships `cli.js` — it's a thin loader that dispatches to platform-specific Bun standalone binaries. ClawGod adapts:
-
-1. Locates the user's installed native Bun binary in `~/.local/share/claude/versions/`
-2. Extracts the embedded `cli.js` source from the `__BUN` segment (Mach-O / ELF / PE)
-3. Extracts the embedded `.node` native modules (audio-capture, image-processor, computer-use-*, url-handler) into `~/.clawgod/vendor/`
-4. Rewrites `/$bunfs/...` virtual paths to point at the extracted modules
-5. Applies 29 regex-based patches (version-agnostic — same patches work across many releases)
-6. The `claude` / `clawgod` launchers run the patched cli.js under the Bun runtime
-7. Loads `bun-ant-shim.cjs` before the patched cli.js, supplying the `Bun.ant.CellSegmenter` renderer API that Claude Code 2.1.271+ expects
-
-A `.source-version` stamp in `~/.clawgod/` records which native version was patched. On every launch the wrapper compares it against the latest binary in `versions/`; if the user upgraded Claude Code via the official installer, ClawGod auto-re-patches on the next run.
-
-## Update
-
-**Just run `claude update` as usual.** ClawGod patches the command to route through its own installer, which pulls the current Anthropic release from npm (`@anthropic-ai/claude-code-<plat>@latest`), re-extracts cli.js, re-applies patches, and rewrites the launcher. So the upstream update command keeps working the way you expect — you get the latest Claude, with patches still applied, in one step.
-
-Extra options:
-
-```bash
-claude update --version 2.1.180   # Pin to a specific Claude Code version
-claude update --no-upgrade        # Re-patch the installed Claude version
-claude update --tolerate-stale    # Continue if a patch regex is stale; affected gates keep upstream behavior
-```
-
-`--version` is useful when a new release has issues and you want to stay on a known-good version. `--no-upgrade` re-applies the latest patches to a complete clean-source backup of the installed version. Older installations without that backup download the same Claude version once to recover it; subsequent re-patches reuse the local backup.
-
-`--tolerate-stale` is an explicit fallback for a future Claude Code update that changes a patch pattern. The installer lists each skipped patch and keeps its upstream behavior. Without the flag, a stale pattern still aborts the install without writing partially patched source.
-
-If you'd rather invoke the installer directly (same effect, both paths fetch the same upstream release and re-patch):
-
-**macOS / Linux:**
-```bash
-curl -fsSL https://github.com/0Chencc/clawgod/releases/latest/download/install.sh | bash
-```
-
-**Windows:**
-```powershell
-irm https://github.com/0Chencc/clawgod/releases/latest/download/install.ps1 | iex
-```
-
-If you'd rather drop ClawGod and use Anthropic's original `claude update` (which manages its own paths and would overwrite our launcher), uninstall first:
-
-```bash
-bash ~/.clawgod/install.sh --uninstall
-```
-
-## Uninstall
-
-**macOS / Linux:**
-```bash
-curl -fsSL https://github.com/0Chencc/clawgod/releases/latest/download/install.sh | bash -s -- --uninstall
-hash -r  # refresh shell cache
-```
-
-**Windows:**
-```powershell
-irm https://github.com/0Chencc/clawgod/releases/latest/download/install.ps1 -OutFile install.ps1; .\install.ps1 -Uninstall
-```
-
-Uninstall restores `claude.orig → claude` and removes the `clawgod` alias.
-
-> After install or uninstall, restart your terminal or run `hash -r` if the command doesn't take effect immediately.
-
-## License
-
-GPL-3.0 — Not affiliated with Anthropic. Use at your own risk.
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=0chencc%2Fclawgod&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=0chencc/clawgod&type=date&theme=dark&legend=top-left&sealed_token=ntGY6im49ymMeD9BXSi0OmH_kyhnnTL9pGyfm2rLYBTlzEcTeQf4o6RA6HqXhGVzdD6xXlk20KCFAyk4gWIpEda3TVEm4re4eJ0xoosRcUdYMui5B7Hp6e3YBUAr2tWmCZu2ZkRWVCOEdCOldK9S_h7Jn7NIjGEEgWywl2ZZOq7xpUpT4IkkXKKxGNJi" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=0chencc/clawgod&type=date&legend=top-left&sealed_token=ntGY6im49ymMeD9BXSi0OmH_kyhnnTL9pGyfm2rLYBTlzEcTeQf4o6RA6HqXhGVzdD6xXlk20KCFAyk4gWIpEda3TVEm4re4eJ0xoosRcUdYMui5B7Hp6e3YBUAr2tWmCZu2ZkRWVCOEdCOldK9S_h7Jn7NIjGEEgWywl2ZZOq7xpUpT4IkkXKKxGNJi" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=0chencc/clawgod&type=date&legend=top-left&sealed_token=ntGY6im49ymMeD9BXSi0OmH_kyhnnTL9pGyfm2rLYBTlzEcTeQf4o6RA6HqXhGVzdD6xXlk20KCFAyk4gWIpEda3TVEm4re4eJ0xoosRcUdYMui5B7Hp6e3YBUAr2tWmCZu2ZkRWVCOEdCOldK9S_h7Jn7NIjGEEgWywl2ZZOq7xpUpT4IkkXKKxGNJi" />
- </picture>
-</a>
+No Claude binary is required or executed by these checks. A completed copy
+output contains runtime support only; patch tools are removed after success.
+Upstream licensing is retained in `LICENSE`.

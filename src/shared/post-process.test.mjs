@@ -1,10 +1,11 @@
+import { privateFixture } from './fixture-helpers.mjs';
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const root = mkdtempSync(join(tmpdir(), 'clawgod text assets-'));
+const root = privateFixture('clawgod text assets-');
 const bun = process.env.CLAWGOD_TEST_BUN || 'bun';
 const run = (command, args) => {
   const result = spawnSync(command, args, { encoding: 'utf8', timeout: 15000 });
@@ -15,7 +16,7 @@ try {
   for (const mount of ['/$bunfs/root/', 'B:/~BUN/root/']) {
     const dir = join(root, mount.startsWith('B:') ? 'windows' : 'posix', 'profile space \u6d4b\u8bd5');
     mkdirSync(join(dir, 'bunfs'), { recursive: true });
-    copyFileSync(new URL('./post-process.mjs', import.meta.url), join(dir, 'post-process.mjs'));
+    for (const name of ['post-process.mjs', 'target-policy.cjs']) copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
     writeFileSync(join(dir, 'pathmap.json'), JSON.stringify({
       [`${mount}helper.js`]: 'bunfs/helper.js',
       [`${mount}state-library.js.txt`]: 'bunfs/state-library.js.txt',
@@ -29,7 +30,7 @@ try {
     writeFileSync(join(dir, 'bunfs/module.js'), 'export const value = 7;');
     writeFileSync(join(dir, 'external.txt'), 'outside the extracted graph');
 
-    run(process.execPath, [join(dir, 'post-process.mjs')]);
+    run(process.execPath, [join(dir, 'post-process.mjs'), '--target', join(dir, 'cli.original.js'), '--output-dir', dir]);
     const check = join(dir, 'check.mjs');
     writeFileSync(check, `
 import assert from 'node:assert/strict';
@@ -65,7 +66,7 @@ for (const requireAsset of [load, entryLoad]) {
 
     const helper = readFileSync(join(dir, 'bunfs/helper.js'), 'utf8');
     copyFileSync(join(dir, 'cli.original.cjs'), join(dir, 'cli.original.js'));
-    run(process.execPath, [join(dir, 'post-process.mjs')]);
+    run(process.execPath, [join(dir, 'post-process.mjs'), '--target', join(dir, 'cli.original.js'), '--output-dir', dir]);
     assert.equal(readFileSync(join(dir, 'bunfs/helper.js'), 'utf8'), helper, 'reprocessing must not nest loaders');
     run(bun, [check]);
   }

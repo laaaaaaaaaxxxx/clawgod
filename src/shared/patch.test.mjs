@@ -1,3 +1,4 @@
+import { privateFixture } from './fixture-helpers.mjs';
 // Patch regression tests, including classifierTimeoutFloor — the parser behind the
 // classifier-timeout patch (see runtime-helpers.cjs). Gating
 // (globalThis.__clawgodPatches?.["classifier-timeout"]) and the
@@ -65,9 +66,9 @@ const ultraplanFixtures = [
   { label: 'getter and flag helper', description: 'get description(){return`Draft a plan (${estimate()})`}', original: '$flag()' },
   { label: '2.1.268 availability', description: 'get description(){return`Draft a plan (${estimate()})`}', original: '$flag()', metadata: 'availability:["claude-ai"],' },
 ];
-const testDir = mkdtempSync(join(tmpdir(), 'clawgod-patch-test-'));
+const testDir = privateFixture('clawgod-patch-test-');
 try {
-  for (const name of ['patch.mjs', 'ast-patches.mjs', 'acorn.mjs']) {
+  for (const name of ['patch.mjs', 'ast-patches.mjs', 'acorn.mjs', 'target-policy.cjs']) {
     copyFileSync(new URL(`./${name}`, import.meta.url), join(testDir, name));
   }
   for (const graph of [false, true]) {
@@ -77,7 +78,7 @@ try {
       const target = join(testDir, graph ? 'bunfs/commands.js' : 'cli.original.cjs');
       if (graph) writeFileSync(join(testDir, 'cli.original.cjs'), '// entry');
       writeFileSync(target, source);
-      const output = execFileSync(process.execPath, [join(testDir, 'patch.mjs')], { encoding: 'utf8' });
+      const output = execFileSync(process.execPath, [join(testDir, 'patch.mjs'), '--target', join(testDir, 'cli.original.cjs'), '--output-dir', testDir], { encoding: 'utf8' });
       assert.match(output, /Ultraplan enable \(1 replacement in 1 file\)/, fixture.label);
       const patched = readFileSync(target, 'utf8');
       const enabled = `isEnabled:()=>${fixture.original}`;
@@ -110,7 +111,7 @@ try {
       const source = `var command={name:"ultraplan",${body}};var neighbor={name:"other",argumentHint:"<prompt>",isEnabled:()=>!1};`;
       const target = join(testDir, graph ? 'bunfs/commands.js' : 'cli.original.cjs');
       writeFileSync(target, source);
-      const result = spawnSync(process.execPath, [join(testDir, 'patch.mjs')], { encoding: 'utf8' });
+      const result = spawnSync(process.execPath, [join(testDir, 'patch.mjs'), '--target', join(testDir, 'cli.original.cjs'), '--output-dir', testDir], { encoding: 'utf8' });
       assert.equal(result.status, 1);
       assert.match(result.stdout, /Ultraplan enable — AST matcher stale/);
       assert.equal(readFileSync(target, 'utf8'), source);
@@ -134,12 +135,12 @@ try {
     const layout = graph ? 'graph' : 'legacy';
 
     writeFileSync(target, source);
-    const strict = spawnSync(process.execPath, [join(testDir, 'patch.mjs')], { encoding: 'utf8' });
+    const strict = spawnSync(process.execPath, [join(testDir, 'patch.mjs'), '--target', join(testDir, 'cli.original.cjs'), '--output-dir', testDir], { encoding: 'utf8' });
     assert.equal(strict.status, 1, `${layout}: stale patch still aborts by default`);
     assert.match(strict.stdout, /Ultraplan enable — AST matcher stale/);
     assert.equal(readFileSync(target, 'utf8'), source, `${layout}: default run writes nothing`);
 
-    const lenient = spawnSync(process.execPath, [join(testDir, 'patch.mjs'), '--tolerate-stale'], { encoding: 'utf8' });
+    const lenient = spawnSync(process.execPath, [join(testDir, 'patch.mjs'), '--target', join(testDir, 'cli.original.cjs'), '--output-dir', testDir, '--tolerate-stale'], { encoding: 'utf8' });
     assert.equal(lenient.status, 0, `${layout}: --tolerate-stale completes the install`);
     assert.match(lenient.stdout, /\d+ applied, \d+ skipped, 0 failed, 1 tolerated/);
     assert.match(lenient.stdout, /Ultraplan enable — AST matcher stale.*\(tolerated\)/);
@@ -165,7 +166,7 @@ try {
       const target = join(testDir, graph ? 'bunfs/auto-mode.js' : 'cli.original.cjs');
       if (graph) writeFileSync(join(testDir, 'cli.original.cjs'), '// entry');
       writeFileSync(target, source);
-      const output = execFileSync(process.execPath, [join(testDir, 'patch.mjs')], { encoding: 'utf8' });
+      const output = execFileSync(process.execPath, [join(testDir, 'patch.mjs'), '--target', join(testDir, 'cli.original.cjs'), '--output-dir', testDir], { encoding: 'utf8' });
       assert.match(output, /Auto-mode unlock for third-party API \(inline gate\) \(1 replacement in 1 file\)/, label);
       const patched = readFileSync(target, 'utf8');
       for (const toggle of [false, true]) {

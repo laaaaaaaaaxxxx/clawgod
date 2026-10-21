@@ -17,11 +17,12 @@
  * the existing `node` invocation in install.sh / install.ps1.
  *
  * Usage:
- *   node extract-natives.mjs <binary-path> <output-dir>
+ *   node extract-natives.mjs --target <absolute-copy> --output-dir <absolute-output>
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import policy from './target-policy.cjs';
 
 // ─── Format constants ────────────────────────────────────────────────
 
@@ -304,15 +305,11 @@ function napiBasename(name) {
 // ─── Main ────────────────────────────────────────────────────────────
 
 function main() {
-  const [,, binaryPath, outputDir] = process.argv;
-  if (!binaryPath || !outputDir) {
-    console.error('Usage: extract-natives.mjs <binary-path> <output-dir>');
-    process.exit(1);
-  }
-  if (!existsSync(binaryPath)) {
-    console.error(`Binary not found: ${binaryPath}`);
-    process.exit(1);
-  }
+  const options = policy.parseArguments(process.argv.slice(2));
+  const binaryPath = policy.assertPrivatePath(options['--target'], 'target copy', { kind: 'file', mustExist: true });
+  const outputDir = policy.assertPrivatePath(options['--output-dir'], 'output directory', { kind: 'directory' });
+  if (existsSync(outputDir)) policy.assertPrivateTree(outputDir);
+  const outputPath = name => policy.assertWithin(outputDir, join(outputDir, name), 'extracted file');
 
   const buf = readFileSync(binaryPath);
   console.log(`Size:    ${(buf.length / 1024 / 1024).toFixed(1)} MB`);
@@ -353,23 +350,23 @@ function main() {
   // napi under vendor/. We postpone path rewriting to post-process.mjs
   // (which knows the final install dir).
   const platDir = `${section.arch}-${section.os}`;
-  const graphDir = join(outputDir, 'bunfs');
+  const graphDir = outputPath('bunfs');
 
   let cliCount = 0, napiCount = 0, dropped = 0;
   const napiNames = new Set();
   for (const m of modules) {
     if (m.entry) {
-      const out = join(outputDir, 'cli.original.js');
-      writeFileSync(out, m.content);
+      const out = outputPath('cli.original.js');
+      writeFileSync(out, m.content, { flag: 'wx' });
       console.log(`  cli.js   ${(m.content.length / 1024 / 1024).toFixed(2)} MB → ${out} (${m.name})`);
       cliCount++;
     } else if (m.loader === 'napi') {
       const base = napiBasename(m.name);
-      if (!base) { console.warn(`  skip napi ${m.name}: empty basename`); dropped++; continue; }
-      const dir = join(outputDir, 'vendor', base, platDir);
+      if (!/^[\w.-]+$/.test(base) || base === '.' || base === '..') die('Invalid native module basename');
+      const dir = outputPath(join('vendor', base, platDir));
       mkdirSync(dir, { recursive: true });
-      const out = join(dir, `${base}.node`);
-      writeFileSync(out, m.content);
+      const out = outputPath(join('vendor', base, platDir, `${base}.node`));
+      writeFileSync(out, m.content, { flag: 'wx' });
       console.log(`  napi     ${(m.content.length / 1024).toFixed(0).padStart(5)} KB → ${out}`);
       napiCount++;
       napiNames.add(m.name.replaceAll('\\', '/'));
@@ -381,7 +378,7 @@ function main() {
       if (!sub) { dropped++; continue; }
       const flat = sub.replace(/\//g, '__');
       mkdirSync(graphDir, { recursive: true });
-      writeFileSync(join(graphDir, flat), m.content);
+      writeFileSync(outputPath(join('bunfs', flat)), m.content, { flag: 'wx' });
       console.log(`  chunk    ${(m.content.length / 1024).toFixed(0).padStart(6)} KB → bunfs/${flat}`);
       dropped++;  // count as dropped-from-entry (informational)
     } else {
@@ -411,7 +408,7 @@ function main() {
         pathMap[normName] = `bunfs/${sub.replace(/\//g, '__')}`;
       }
     }
-    writeFileSync(join(outputDir, 'pathmap.json'), JSON.stringify(pathMap, null, 0) + '\n');
+    writeFileSync(outputPath('pathmap.json'), JSON.stringify(pathMap, null, 0) + '\n', { flag: 'wx' });
     console.log(`Graph chunks: ${modules.filter((m) => m.loader === 'js').length} js + napi in vendor/`);
   }
 }

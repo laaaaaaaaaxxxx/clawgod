@@ -1,3 +1,4 @@
+import { privateFixture } from './fixture-helpers.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, copyFileSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -26,9 +27,9 @@ assert.equal(terminalReplyDelay(pending, reader('\x1b['), NaN), 0);
 
 // Exercise the actual emitted callback, including older minified identifiers,
 // graph/legacy patching, idempotence, expiry, and a wrapper without the helper.
-const dir = mkdtempSync(join(tmpdir(), 'clawgod-terminal-reply-test-'));
+const dir = privateFixture('clawgod-terminal-reply-test-');
 try {
-  for (const name of ['patch.mjs', 'ast-patches.mjs', 'acorn.mjs']) {
+  for (const name of ['patch.mjs', 'ast-patches.mjs', 'acorn.mjs', 'target-policy.cjs']) {
     copyFileSync(new URL(`./${name}`, import.meta.url), join(dir, name));
   }
   for (const graph of [false, true]) {
@@ -39,10 +40,10 @@ try {
       const target = join(dir, graph ? 'bunfs/renderer.js' : 'cli.original.cjs');
       if (graph) writeFileSync(join(dir, 'cli.original.cjs'), '// graph entry\n');
       writeFileSync(target, source);
-      execFileSync(process.execPath, [join(dir, 'patch.mjs')]);
+      execFileSync(process.execPath, [join(dir, 'patch.mjs'), '--target', join(dir, 'cli.original.cjs'), '--output-dir', dir]);
       const patched = readFileSync(target, 'utf8');
       assert.ok(patched.includes('globalThis.__clawgodHelpers?.terminalReplyDelay'));
-      execFileSync(process.execPath, [join(dir, 'patch.mjs')]);
+      execFileSync(process.execPath, [join(dir, 'patch.mjs'), '--target', join(dir, 'cli.original.cjs'), '--output-dir', dir]);
       assert.equal(readFileSync(target, 'utf8'), patched);
 
       let clock = 150, scheduled, flushed = 0;
